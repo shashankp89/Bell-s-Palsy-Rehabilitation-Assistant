@@ -6,7 +6,6 @@ import importlib
 from typing import Any
 
 
-# -------- Dependency bootstrap (same interpreter, same script) --------
 def ensure_runtime_dependencies() -> dict:
     mod_to_pkg = {
         "cv2": "opencv-python",
@@ -30,7 +29,6 @@ mp = _modules["mediapipe"]
 np = _modules["numpy"]
 
 
-# -------- Landmark groups --------
 IDX = {
     "nose": [168, 1, 4],
     "mouth_r": [61, 146, 91],
@@ -146,11 +144,13 @@ def to_xy(face_landmarks: Any, w: int, h: int) -> Any:
 
 
 def measures(pts: Any) -> dict:
-    cx = float(ccenter(pts, IDX["nose"])[0])
+    nose = ccenter(pts, IDX["nose"])
+    cx = float(nose[0])
     mouth_r, mouth_l = ccenter(pts, IDX["mouth_r"]), ccenter(pts, IDX["mouth_l"])
     brow_r, brow_l = ccenter(pts, IDX["brow_r"]), ccenter(pts, IDX["brow_l"])
     inner_r, inner_l = ccenter(pts, IDX["inner_r"]), ccenter(pts, IDX["inner_l"])
     return {
+        "nose": nose,
         "center_x": cx,
         "mouth_r": mouth_r,
         "mouth_l": mouth_l,
@@ -241,8 +241,8 @@ def main() -> None:
     def start_record(ex_name: str) -> None:
         nonlocal state, count
         if ex_name == "SMILE":
-            records["smile_right_max"] = 0.0
-            records["smile_left_max"] = 0.0
+            records["smile_right_move_max"] = 0.0
+            records["smile_left_move_max"] = 0.0
         elif ex_name == "BROW":
             records["brow_right_elev_max"] = 0.0
             records["brow_left_elev_max"] = 0.0
@@ -250,20 +250,25 @@ def main() -> None:
             records["eye_right_ear_min"] = float("inf")
             records["eye_left_ear_min"] = float("inf")
         elif ex_name == "PUCKER":
-            records["pucker_mouth_width_min"] = float("inf")
-            records["pucker_right_to_center_min"] = float("inf")
-            records["pucker_left_to_center_min"] = float("inf")
+            records["pucker_right_move_max"] = 0.0
+            records["pucker_left_move_max"] = 0.0
         elif ex_name == "FROWN":
-            records["frown_inner_width_min"] = float("inf")
-            records["frown_right_to_center_min"] = float("inf")
-            records["frown_left_to_center_min"] = float("inf")
+            records["frown_right_move_max"] = 0.0
+            records["frown_left_move_max"] = 0.0
         count = 0
         state = f"{ex_name}_RECORD"
 
+    def motion_corrected(point: Any, m: dict) -> Any:
+        dx = float(m["nose"][0]) - baseline["nose_x"]
+        dy = float(m["nose"][1]) - baseline["nose_y"]
+        return np.array([float(point[0]) - dx, float(point[1]) - dy], dtype=np.float32)
+
     def update_record(ex_name: str, m: dict) -> None:
         if ex_name == "SMILE":
-            records["smile_right_max"] = max(records["smile_right_max"], m["mouth_r_to_center"])
-            records["smile_left_max"] = max(records["smile_left_max"], m["mouth_l_to_center"])
+            mr = motion_corrected(m["mouth_r"], m)
+            ml = motion_corrected(m["mouth_l"], m)
+            records["smile_right_move_max"] = max(records["smile_right_move_max"], dist(mr, baseline["mouth_r_pt"]))
+            records["smile_left_move_max"] = max(records["smile_left_move_max"], dist(ml, baseline["mouth_l_pt"]))
         elif ex_name == "BROW":
             records["brow_right_elev_max"] = max(records["brow_right_elev_max"], baseline["brow_r_y"] - m["brow_r_y"])
             records["brow_left_elev_max"] = max(records["brow_left_elev_max"], baseline["brow_l_y"] - m["brow_l_y"])
@@ -271,32 +276,25 @@ def main() -> None:
             records["eye_right_ear_min"] = min(records["eye_right_ear_min"], m["ear_r"])
             records["eye_left_ear_min"] = min(records["eye_left_ear_min"], m["ear_l"])
         elif ex_name == "PUCKER":
-            records["pucker_mouth_width_min"] = min(records["pucker_mouth_width_min"], m["mouth_width"])
-            records["pucker_right_to_center_min"] = min(records["pucker_right_to_center_min"], m["mouth_r_to_center"])
-            records["pucker_left_to_center_min"] = min(records["pucker_left_to_center_min"], m["mouth_l_to_center"])
+            mr = motion_corrected(m["mouth_r"], m)
+            ml = motion_corrected(m["mouth_l"], m)
+            records["pucker_right_move_max"] = max(records["pucker_right_move_max"], dist(mr, baseline["mouth_r_pt"]))
+            records["pucker_left_move_max"] = max(records["pucker_left_move_max"], dist(ml, baseline["mouth_l_pt"]))
         elif ex_name == "FROWN":
-            records["frown_inner_width_min"] = min(records["frown_inner_width_min"], m["inner_width"])
-            records["frown_right_to_center_min"] = min(records["frown_right_to_center_min"], m["inner_r_to_center"])
-            records["frown_left_to_center_min"] = min(records["frown_left_to_center_min"], m["inner_l_to_center"])
+            ir = motion_corrected(m["inner_r"], m)
+            il = motion_corrected(m["inner_l"], m)
+            records["frown_right_move_max"] = max(records["frown_right_move_max"], dist(ir, baseline["inner_r_pt"]))
+            records["frown_left_move_max"] = max(records["frown_left_move_max"], dist(il, baseline["inner_l_pt"]))
 
     def build_report() -> dict:
-        smile = sym_score(
-            abs(records["smile_left_max"] - baseline["mouth_l_to_center"]),
-            abs(records["smile_right_max"] - baseline["mouth_r_to_center"]),
-        )
+        smile = sym_score(records["smile_left_move_max"], records["smile_right_move_max"])
         brow = sym_score(abs(records["brow_left_elev_max"] - 0.0), abs(records["brow_right_elev_max"] - 0.0))
         eye = sym_score(
             abs(records["eye_left_ear_min"] - baseline["ear_l"]),
             abs(records["eye_right_ear_min"] - baseline["ear_r"]),
         )
-        pucker = sym_score(
-            abs(records["pucker_left_to_center_min"] - baseline["mouth_l_to_center"]),
-            abs(records["pucker_right_to_center_min"] - baseline["mouth_r_to_center"]),
-        )
-        frown = sym_score(
-            abs(records["frown_left_to_center_min"] - baseline["inner_l_to_center"]),
-            abs(records["frown_right_to_center_min"] - baseline["inner_r_to_center"]),
-        )
+        pucker = sym_score(records["pucker_left_move_max"], records["pucker_right_move_max"])
+        frown = sym_score(records["frown_left_move_max"], records["frown_right_move_max"])
         overall = float(np.mean([smile, brow, eye, pucker, frown]))
         return {
             "Smile Symmetry": smile,
@@ -332,6 +330,12 @@ def main() -> None:
                 lines = ["Calibrating... Keep face in frame."]
             else:
                 baseline = {
+                    "nose_x": float(m["nose"][0]),
+                    "nose_y": float(m["nose"][1]),
+                    "mouth_r_pt": np.array([float(m["mouth_r"][0]), float(m["mouth_r"][1])], dtype=np.float32),
+                    "mouth_l_pt": np.array([float(m["mouth_l"][0]), float(m["mouth_l"][1])], dtype=np.float32),
+                    "inner_r_pt": np.array([float(m["inner_r"][0]), float(m["inner_r"][1])], dtype=np.float32),
+                    "inner_l_pt": np.array([float(m["inner_l"][0]), float(m["inner_l"][1])], dtype=np.float32),
                     "mouth_r_to_center": m["mouth_r_to_center"],
                     "mouth_l_to_center": m["mouth_l_to_center"],
                     "brow_r_y": m["brow_r_y"],
