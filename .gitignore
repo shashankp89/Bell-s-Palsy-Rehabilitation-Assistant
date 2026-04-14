@@ -1,0 +1,33 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Node (Frontend)
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+
+# Project specific
+recovery_history.json
+**/recovery_history.json
+*.task
+# If face_landmarker.task is large, it's better to ignore or use LFS
+# face_landmarker.task
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
