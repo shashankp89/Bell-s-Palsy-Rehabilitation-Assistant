@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿import React, { useState, useMemo } from 'react';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from 'recharts';
@@ -17,7 +17,6 @@ const PALETTE = {
 
 export default function Dashboard({ rawData = [], onRefresh }) {
   const [timeframe, setTimeframe] = useState('ALL');
-  const [filteredData, setFilteredData] = useState([]);
 
   const flattenedData = useMemo(() => {
     return rawData
@@ -30,23 +29,12 @@ export default function Dashboard({ rawData = [], onRefresh }) {
       .sort((a, b) => a.timestamp - b.timestamp);
   }, [rawData]);
 
-  useEffect(() => {
-    if (flattenedData.length === 0) {
-      setFilteredData([]);
-      return;
-    }
-
-    if (timeframe === 'ALL') {
-      setFilteredData(flattenedData);
-      return;
-    }
-
+  const filteredData = useMemo(() => {
+    if (flattenedData.length === 0 || timeframe === 'ALL') return flattenedData;
     const latestDate = flattenedData[flattenedData.length - 1].timestamp;
     const daysToSubtract = timeframe === '7D' ? 7 : 30;
     const cutoffDate = latestDate - (daysToSubtract * 24 * 60 * 60 * 1000);
-
-    const newFiltered = flattenedData.filter(d => d.timestamp >= cutoffDate);
-    setFilteredData(newFiltered);
+    return flattenedData.filter((dataPoint) => dataPoint.timestamp >= cutoffDate);
   }, [timeframe, flattenedData]);
 
   if (!rawData || rawData.length === 0) {

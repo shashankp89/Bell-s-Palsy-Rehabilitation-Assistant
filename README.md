@@ -49,13 +49,20 @@ The React Dashboard controls the entire workflow natively,from running the live 
 1. **Start the Frontend Server:**
    ```bash
    cd frontend
+   npm install
    npm run dev
    ```
 
 2. **Open the Dashboard:**
    Visit **[http://localhost:5173](http://localhost:5173)** in your browser.
 
-3. **Log a Clinical Session:**
+3. **Log in to the app:**
+   - Use Google sign-in with a valid Google account.
+   - Or log in with email/password using a configured Firebase account.
+   - Or use the Admin login with the configured admin email/password.
+   - Or use Visitor Preview to view the preloaded data without login.
+
+4. **Log a Clinical Session:**
    - Click the **"Start Live Exercise"** button in the dashboard header.
    - The Python AI Tracker will automatically pop up in a new desktop window.
    - Follow the on-screen prompts: 
@@ -63,6 +70,27 @@ The React Dashboard controls the entire workflow natively,from running the live 
      - Perform the 5 clinical exercises (Smile, Eyebrow Raise, Eye Squeeze, Pucker, Frown) for 80-frames per exercise, pressing `ENTER` to begin each one.
    - Once the RESULTS screen appears, close the Python window (press `q`).
    - Back in the browser, click **"Finish Session & View Results"**. The dashboard's interactive charts will instantly ingest the new data!
+
+## Authentication & Hosting Setup
+
+This app supports Firebase Auth for real Google and email/password login, plus a local admin mode and visitor preview.
+
+1. Copy the env file:
+   ```bash
+   cd frontend
+   copy .env.example .env
+   ```
+
+2. Fill in your Firebase credentials in the `.env` file.
+
+3. For host deployment, set the same environment variables in Vercel, Netlify, or Firebase Hosting.
+
+4. The app is configured for static hosting and will run easily on Vercel or Netlify.
+
+5. For local dev, you can keep the default guest/admin preview mode or switch to Firebase by setting:
+   ```bash
+   VITE_USE_DEMO_MODE=false
+   ```
 
 ## Technical Architecture
 
