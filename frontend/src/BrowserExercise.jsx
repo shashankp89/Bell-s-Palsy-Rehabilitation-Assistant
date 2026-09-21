@@ -71,6 +71,7 @@ export default function BrowserExercise({ onComplete, onCancel }) {
   const recordingRef = useRef(null);
   const statusRef = useRef('idle');
   const frameTimestampRef = useRef(0);
+  const videoReadyRef = useRef(false);
   const [status, setStatus] = useState('idle');
   const [message, setMessage] = useState('Allow camera access to begin.');
   const [currentExercise, setCurrentExercise] = useState(0);
@@ -89,7 +90,10 @@ export default function BrowserExercise({ onComplete, onCancel }) {
   }, []);
 
   const processFrame = () => {
-    if (!videoRef.current || !landmarkerRef.current || videoRef.current.readyState < 2) {
+    if (!videoRef.current || !landmarkerRef.current || !videoReadyRef.current || videoRef.current.readyState < 2 || !videoRef.current.videoWidth) {
+      if (videoRef.current?.srcObject && !videoRef.current.videoWidth) {
+        setMessage('Camera connected. Waiting for video frames...');
+      }
       animationRef.current = requestAnimationFrame(processFrame);
       return;
     }
@@ -138,13 +142,23 @@ export default function BrowserExercise({ onComplete, onCancel }) {
         });
       }
       videoRef.current.srcObject = streamRef.current;
+      videoRef.current.oncanplay = () => {
+        videoReadyRef.current = true;
+        setMessage('Camera ready. Relax your face, then calibrate your baseline.');
+      };
+      videoRef.current.onloadedmetadata = async () => {
+        await videoRef.current.play();
+        videoReadyRef.current = true;
+      };
       await videoRef.current.play();
+      videoReadyRef.current = true;
       setStatus('calibration-ready');
       setMessage('Relax your face, then calibrate your baseline.');
       animationRef.current = requestAnimationFrame(processFrame);
     } catch (cameraError) {
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
+      videoReadyRef.current = false;
       setStatus('idle');
       const errorName = cameraError?.name || '';
       const errorMessage = cameraError?.message || String(cameraError || 'Unknown startup error');
@@ -239,7 +253,7 @@ export default function BrowserExercise({ onComplete, onCancel }) {
 
       <div className="grid md:grid-cols-[1.3fr_1fr] gap-6">
         <div className="bg-gray-950 rounded-xl overflow-hidden aspect-video flex items-center justify-center">
-          <video ref={videoRef} className="w-full h-full object-cover -scale-x-100" playsInline muted />
+          <video ref={videoRef} className="w-full h-full object-cover -scale-x-100" autoPlay playsInline muted />
           {status === 'idle' && <button onClick={startCamera} className="absolute bg-emerald-500 hover:bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold">Enable Camera</button>}
         </div>
 
