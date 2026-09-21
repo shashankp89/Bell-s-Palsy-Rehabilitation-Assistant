@@ -10,7 +10,7 @@ const EXERCISES = [
 ];
 
 const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
-const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm';
+const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm';
 
 function distance(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
@@ -70,6 +70,7 @@ export default function BrowserExercise({ onComplete, onCancel }) {
   const samplesRef = useRef([]);
   const recordingRef = useRef(null);
   const statusRef = useRef('idle');
+  const frameTimestampRef = useRef(0);
   const [status, setStatus] = useState('idle');
   const [message, setMessage] = useState('Allow camera access to begin.');
   const [currentExercise, setCurrentExercise] = useState(0);
@@ -93,7 +94,8 @@ export default function BrowserExercise({ onComplete, onCancel }) {
       return;
     }
 
-    const result = landmarkerRef.current.detectForVideo(videoRef.current, videoRef.current.currentTime * 1000);
+    frameTimestampRef.current += 1;
+    const result = landmarkerRef.current.detectForVideo(videoRef.current, frameTimestampRef.current);
     const landmarks = result.faceLandmarks?.[0];
     if (landmarks) {
       const nextMetrics = metrics(landmarks);
@@ -110,24 +112,51 @@ export default function BrowserExercise({ onComplete, onCancel }) {
     try {
       setError('');
       setStatus('loading');
+      if (!window.isSecureContext && window.location.hostname !== 'localhost') {
+        throw new Error('Camera access requires HTTPS. Open the deployed HTTPS URL.');
+      }
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('This browser does not support camera access. Use a current Chrome, Edge, or Firefox browser.');
+      }
+      streamRef.current = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 }, audio: false });
       const vision = await FilesetResolver.forVisionTasks(WASM_URL);
-      landmarkerRef.current = await FaceLandmarker.createFromOptions(vision, {
+      const options = {
         baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
         runningMode: 'VIDEO',
         numFaces: 1,
         minFaceDetectionConfidence: 0.5,
         minFacePresenceConfidence: 0.5,
         minTrackingConfidence: 0.5,
-      });
-      streamRef.current = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 }, audio: false });
+      };
+      try {
+        landmarkerRef.current = await FaceLandmarker.createFromOptions(vision, options);
+      } catch (gpuError) {
+        console.warn('GPU delegate unavailable; retrying with CPU.', gpuError);
+        landmarkerRef.current = await FaceLandmarker.createFromOptions(vision, {
+          ...options,
+          baseOptions: { modelAssetPath: MODEL_URL, delegate: 'CPU' },
+        });
+      }
       videoRef.current.srcObject = streamRef.current;
       await videoRef.current.play();
       setStatus('calibration-ready');
       setMessage('Relax your face, then calibrate your baseline.');
       animationRef.current = requestAnimationFrame(processFrame);
     } catch (cameraError) {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
       setStatus('idle');
-      setError(cameraError.name === 'NotAllowedError' ? 'Camera permission was denied. Allow camera access and try again.' : `Could not start camera: ${cameraError.message}`);
+      const errorName = cameraError?.name || '';
+      const errorMessage = cameraError?.message || String(cameraError || 'Unknown startup error');
+      if (errorName === 'NotAllowedError' || errorName === 'PermissionDeniedError') {
+        setError('Camera permission was denied. Click the camera icon in the browser address bar, allow camera access, then try again.');
+      } else if (errorName === 'NotFoundError') {
+        setError('No camera was found. Connect a webcam and try again.');
+      } else if (errorName === 'NotReadableError') {
+        setError('The camera is already being used by another application. Close it and try again.');
+      } else {
+        setError(`Could not start camera: ${errorMessage}`);
+      }
     }
   };
 
